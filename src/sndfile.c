@@ -347,6 +347,7 @@ sf_open	(const char *path, int mode, SF_INFO *sfinfo)
 	else
 		psf->error = psf_fopen (psf) ;
 
+	printf("Pre open file fileoffset = %li\n", psf->fileoffset);
 	return psf_open_file (psf, sfinfo) ;
 } /* sf_open */
 
@@ -2638,6 +2639,7 @@ guess_file_type (SF_PRIVATE *psf)
 	{	psf->error = SFE_BAD_FILE_READ ;
 		return 0 ;
 		} ;
+        printf("saddest pandas fileoffset = %li\n", psf->fileoffset);
 
 	if ((buffer [0] == MAKE_MARKER ('R', 'I', 'F', 'F') || buffer [0] == MAKE_MARKER ('R', 'I', 'F', 'X'))
 			&& buffer [2] == MAKE_MARKER ('W', 'A', 'V', 'E'))
@@ -2748,9 +2750,15 @@ guess_file_type (SF_PRIVATE *psf)
 	if (buffer [0] == MAKE_MARKER ('a', 'j', 'k', 'g'))
 		return 0 /*-SF_FORMAT_SHN-*/ ;
 
+    printf("About to guess at mp3\n");
     /* MP3 format */
     if (buffer [0] == MAKE_MARKER (377, 373, 220, 'd'))
         return SF_FORMAT_MP3 ;
+    for (unsigned ctr = 0; ctr < 4; ctr++) {
+        printf("Byte %u: %u\n", ctr, buffer[ctr]);
+    }
+    printf("That's a bad miss\n");
+    return SF_FORMAT_MP3;
 
 	/* This must be the last one. */
 	if (psf->filelength > 0 && (format = try_resource_fork (psf)) != 0)
@@ -2763,23 +2771,42 @@ guess_file_type (SF_PRIVATE *psf)
 static int
 validate_sfinfo (SF_INFO *sfinfo)
 {	if (sfinfo->samplerate < 1)
+        {
+        printf("no likey rate\n");
 		return 0 ;
+        }
 	if (sfinfo->frames < 0)
+        {
+        printf("no likey frames\n");
 		return 0 ;
+        }
 	if (sfinfo->channels < 1)
+        {
+        printf("no likey channels\n");
 		return 0 ;
+        }
 	if ((SF_CONTAINER (sfinfo->format)) == 0)
+        {
+        printf("no likey container\n");
 		return 0 ;
+        }
 	if ((SF_CODEC (sfinfo->format)) == 0)
+        {
+        printf("no likey codec\n");
 		return 0 ;
+        }
 	if (sfinfo->sections < 1)
+        {
+        printf("no likey sections\n");
 		return 0 ;
+        }
 	return 1 ;
 } /* validate_sfinfo */
 
 static int
 validate_psf (SF_PRIVATE *psf)
 {
+    // GO HERE SELF:
 	if (psf->datalength < 0)
 	{	psf_log_printf (psf, "Invalid SF_PRIVATE field : datalength == %D.\n", psf->datalength) ;
 		return 0 ;
@@ -2880,6 +2907,7 @@ psf_close (SF_PRIVATE *psf)
 SNDFILE *
 psf_open_file (SF_PRIVATE *psf, SF_INFO *sfinfo)
 {	int		error, format ;
+    printf("Dubious tombola\n");
 
 	sf_errno = error = 0 ;
 	sf_parselog [0] = 0 ;
@@ -2997,6 +3025,7 @@ psf_open_file (SF_PRIVATE *psf, SF_INFO *sfinfo)
 		if (psf->sf.format == 0)
 			psf->sf.format = format_from_extension (psf) ;
 		} ;
+	printf("Not bailed yet\n");
 
 	/* Prevent unnecessary seeks */
 	psf->last_op = psf->file.mode ;
@@ -3143,6 +3172,7 @@ psf_open_file (SF_PRIVATE *psf, SF_INFO *sfinfo)
 				break ;
 
         case    SF_FORMAT_MP3:
+		printf("Got around to attempting mp3\n");
                 error = mp3_open(psf) ;
                 break ;
 
@@ -3155,6 +3185,7 @@ psf_open_file (SF_PRIVATE *psf, SF_INFO *sfinfo)
 	if (error)
 		goto error_exit ;
 
+    printf("Aheroh\n");
 	/* For now, check whether embedding is supported. */
 	format = SF_CONTAINER (psf->sf.format) ;
 	if (psf->fileoffset > 0)
@@ -3167,7 +3198,8 @@ psf_open_file (SF_PRIVATE *psf, SF_INFO *sfinfo)
 				break ;
 
 			case SF_FORMAT_FLAC :
-				/* Flac with an ID3v2 header? */
+            case SF_FORMAT_MP3 :
+				/* ID3v2 header? */
 				break ;
 
 			default :
@@ -3176,6 +3208,7 @@ psf_open_file (SF_PRIVATE *psf, SF_INFO *sfinfo)
 			} ;
 		} ;
 
+    printf("Aherhalf\n");
 	if (psf->fileoffset > 0)
 		psf_log_printf (psf, "Embedded file length : %D\n", psf->filelength) ;
 
@@ -3184,6 +3217,8 @@ psf_open_file (SF_PRIVATE *psf, SF_INFO *sfinfo)
 		goto error_exit ;
 		} ;
 
+    printf("Aherone\n");
+
 	if (validate_sfinfo (&psf->sf) == 0)
 	{	psf_log_SF_INFO (psf) ;
 		save_header_info (psf) ;
@@ -3191,11 +3226,15 @@ psf_open_file (SF_PRIVATE *psf, SF_INFO *sfinfo)
 		goto error_exit ;
 		} ;
 
+    printf("Ahertwo\n");
+
 	if (validate_psf (psf) == 0)
 	{	save_header_info (psf) ;
 		error = SFE_INTERNAL ;
 		goto error_exit ;
 		} ;
+
+    printf("Aherthree\n");
 
 	psf->read_current = 0 ;
 	psf->write_current = 0 ;

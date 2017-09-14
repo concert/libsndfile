@@ -41,6 +41,10 @@
 */
 static	int		mp3_close		(SF_PRIVATE *psf) ;
 static  int     mp3_read_header (SF_PRIVATE * psf, mpg123_handle * decoder) ;
+static  sf_count_t mp3_read_2s  (SF_PRIVATE * psf, short * ptr, sf_count_t len) ;
+static  ssize_t mp3_read_sf_handle (void * handle, void * buffer, size_t bytes) ;
+static off_t mp3_seek_sf_handle (void * handle, off_t offset, int whence) ;
+static int mp3_format_to_encoding(int encoding) ;
 
 // FIXME: This initialisation should have a better hook
 static int mpg123_initialised = 0 ;
@@ -54,8 +58,10 @@ int
 mp3_open (SF_PRIVATE * psf)
 {
     int error = 0;
-    int decoder_err;
+    int decoder_err = MPG123_OK;
     mpg123_handle * decoder;
+    printf("IN MP3 OPEN BITCHES\n");
+    printf("MP3 Initial fileoffset: %li\n", psf->fileoffset);
 
     psf->codec_data = NULL;
 
@@ -73,30 +79,46 @@ mp3_open (SF_PRIVATE * psf)
     }
     mpg123_initialised++;
 
+    printf("PANDASPANDASPANDAS\n");
     decoder = mpg123_new(NULL, &decoder_err);
+    printf("ChairsWithFlares\n");
 
-    if (decoder_err != MPG123_OK) {
-        decoder_err = mpg123_open_feed(decoder);
+    // I think: mpg123_replace_reader_handle might be better than what I have now
+    if (decoder_err == MPG123_OK) {
+        decoder_err = mpg123_replace_reader_handle(
+            decoder, mp3_read_sf_handle, mp3_seek_sf_handle, NULL);
+    }
+    // This has to be set before the handle open or mysterious things will
+    // happen on seek. As for whether this is the right value :shrug:.
+    //psf->fileoffset = 0;
+    printf("Itchy nose\n");
+    if (decoder_err == MPG123_OK) {
+        decoder_err = mpg123_open_handle(decoder, psf);
     }
 
-    if (decoder_err != MPG123_OK) {
+    printf("LemonTable\n");
+    if (decoder_err == MPG123_OK) {
         decoder_err = mp3_read_header(psf, decoder);
     }
 
+    // Something tells me this isn't quite right (namely that I haven't a clue
+    // what these do) - the definitions are in src/common.h
+    psf->dataoffset = 0;
+    psf->datalength = psf->filelength ;
+    psf->blockwidth = 0;
+
+    printf("lost_cheese %i\n", decoder_err);
     if (decoder_err != MPG123_OK) {
-        mp3_close(NULL);
+        //mp3_close(psf);
         psf_log_printf(psf, "Failed to initialise mp3 decoder.\n");
         return SFE_UNIMPLEMENTED ; // FIXME: semantically wrong return code
     }
     psf->codec_data = decoder;
 	psf->container_close = mp3_close ;
-    // TODO: seeking
-    psf->sf.seekable = 0;
+    // TODO: seeking and other reads
+    psf->read_short = mp3_read_2s;
 
-
-    // FIXME: This block:
-    return SFE_UNIMPLEMENTED;
-
+    printf("melon face %i\n", error);
     return error;
 }
 
@@ -110,6 +132,7 @@ mp3_close (SF_PRIVATE * psf)
     if (decoder != NULL) {
         // mpg123_close(decoder); <- Not sure if we need this?
         mpg123_delete(decoder);
+        psf->codec_data = NULL;  // The SF can be reused (apparently)
     }
     if (!--mpg123_initialised) {
         mpg123_exit();
@@ -117,29 +140,68 @@ mp3_close (SF_PRIVATE * psf)
     return 0;
 }
 
+static int mp3_format_to_encoding(int encoding) {
+    // https://www.mpg123.de/api/fmt123_8h_source.shtml
+    // http://www.mega-nerd.com/libsndfile/api.html
+    encoding++;
+    return SF_FORMAT_MP3 | SF_FORMAT_PCM_16;
+}
+
 static int
 mp3_read_header (SF_PRIVATE * psf, mpg123_handle * decoder) {
     int decoder_err, channels, encoding;
-    size_t n_bytes_read;
-    char buffer;
     long sample_rate;
-    do {
-        // TODO: is reading a byte at a time required?
-        n_bytes_read = psf_fread(&buffer, 1, 1, psf);
-        if (n_bytes_read == 0) {
-            decoder_err = MPG123_DONE; // FIXME: Backchannel error
-        }
-        decoder_err = mpg123_decode(
-            decoder, (unsigned char *) &buffer, 1, NULL, 0, &n_bytes_read);
-    } while (decoder_err == MPG123_NEED_MORE);
-    if (decoder_err != MPG123_OK) {
-        return decoder_err;
-    }
     decoder_err = mpg123_getformat(decoder, &sample_rate, &channels, &encoding);
     if (decoder_err == MPG123_OK) {
-        // FIXME: encoding unused!
+        psf->sf.format = mp3_format_to_encoding(encoding);
         psf->sf.channels = channels;
         psf->sf.samplerate = sample_rate;
     }
     return decoder_err;
+}
+
+static ssize_t mp3_read_sf_handle (void * handle, void * buffer, size_t bytes) {
+    SF_PRIVATE * psf = handle;
+    off_t wasat = psf_fseek(psf, 0, SEEK_CUR);
+    ssize_t rv = psf_fread(buffer, 1, bytes, psf);
+    off_t nowat = psf_fseek(psf, 0, SEEK_CUR);
+    printf("reading - wasat: %li rv: %li bytes: %lu nowat: %li\n", wasat, rv, bytes, nowat);
+    return rv;
+}
+
+static off_t mp3_seek_sf_handle (void * handle, off_t offset, int whence) {
+    SF_PRIVATE * psf = handle;
+    off_t wasat = psf_fseek(psf, 0, SEEK_CUR);
+    off_t rv = psf_fseek(psf, offset, whence);
+    off_t nowat = psf_fseek(psf, 0, SEEK_CUR);
+    char const * wname = NULL;
+    switch (whence) {
+        case SEEK_SET:
+            wname = "SEEK_SET";
+            break;
+        case SEEK_CUR:
+            wname = "SEEK_CUR";
+            break;
+        case SEEK_END:
+            wname = "SEEK_END";
+            break;
+    }
+    printf("seeking - wasat: %li rv: %li offset: %li whence: %s nowat: %li\n", wasat, rv, offset, wname, nowat);
+    return rv;
+}
+
+static sf_count_t
+mp3_read_2s (SF_PRIVATE *psf, short *ptr, sf_count_t len)
+{
+    static int const encoding = MPG123_ENC_SIGNED_16;
+    size_t n_decoded = 0;
+    mpg123_handle * decoder = psf->codec_data;
+    int decoder_err = mpg123_format(decoder, psf->sf.samplerate, psf->sf.channels, encoding);
+    if (decoder_err != MPG123_OK) {
+        decoder_err = mpg123_read(
+            decoder,
+            (unsigned char *) ptr, len * psf->sf.channels * sizeof(short),
+            &n_decoded);
+    }
+    return n_decoded;
 }

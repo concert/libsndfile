@@ -50,6 +50,7 @@ psf_allocate (void)
 		return	NULL ;
 		} ;
 	psf->header.len = INITAL_HEADER_SIZE ;
+	printf("After alloc fileoffset value is: %li\n", psf->fileoffset);
 
 	return psf ;
 } /* psf_allocate */
